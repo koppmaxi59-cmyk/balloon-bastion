@@ -1,11 +1,11 @@
 {
   "name": "Balloon Bastion",
   "short_name": "Bastion",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#5eb9dc",
   "theme_color": "#5eb9dc",
-  "orientation": "landscape",
+  "orientation": "any",
   "description": "Eigenständiges 3D-Tower-Defense-Spiel",
   "icons": []
 }
