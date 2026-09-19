@@ -66,6 +66,12 @@ export class Renderer3D {
     this.updateCameraZoom();
   }
 
+  panCamera(horizontal: number, depth: number) {
+    this.cameraTarget.x += horizontal;
+    this.cameraTarget.z += depth;
+    this.updateCameraZoom();
+  }
+
   private updateCameraZoom() {
     this.camera.position.set(
       this.cameraTarget.x,

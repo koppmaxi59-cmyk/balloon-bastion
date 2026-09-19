@@ -25,6 +25,10 @@ export function startGame(container: HTMLElement): () => void {
   let selectedTowerType: TowerTypeId | null = null;
   let selectedTower: Tower | null = null;
   let mouse = { x: 0, y: 0 };
+  let touchStart = { x: 0, y: 0 };
+  let touchLast = { x: 0, y: 0 };
+  let touchDragging = false;
+  let ignoreNextClick = false;
   let lives = 100;
   let gameOver = false;
   let victory = false;
@@ -198,6 +202,10 @@ export function startGame(container: HTMLElement): () => void {
   }
 
   const handleClick = (e: MouseEvent) => {
+    if (ignoreNextClick) {
+      ignoreNextClick = false;
+      return;
+    }
     const point = worldToCanvas(e);
     if (selectedTowerType) {
       const cfg = TOWER_DATA[selectedTowerType];
@@ -217,6 +225,28 @@ export function startGame(container: HTMLElement): () => void {
   };
 
   const handleMove = (e: MouseEvent) => { mouse = worldToCanvas(e); };
+  const handlePointerDown = (e: PointerEvent) => {
+    if (e.pointerType !== 'touch') return;
+    touchStart = { x: e.clientX, y: e.clientY };
+    touchLast = touchStart;
+    touchDragging = false;
+    canvas.setPointerCapture(e.pointerId);
+  };
+  const handlePointerMove = (e: PointerEvent) => {
+    if (e.pointerType !== 'touch' || !canvas.hasPointerCapture(e.pointerId)) return;
+    const deltaX = e.clientX - touchLast.x;
+    const deltaY = e.clientY - touchLast.y;
+    if (!touchDragging && Math.hypot(e.clientX - touchStart.x, e.clientY - touchStart.y) > 8) touchDragging = true;
+    if (touchDragging) {
+      renderer.panCamera(-deltaX * 0.025, -deltaY * 0.025);
+      ignoreNextClick = true;
+      e.preventDefault();
+    }
+    touchLast = { x: e.clientX, y: e.clientY };
+  };
+  const handlePointerUp = (e: PointerEvent) => {
+    if (e.pointerType === 'touch' && canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  };
   const handleWheel = (e: WheelEvent) => {
     e.preventDefault();
     renderer.zoomCamera(e.deltaY > 0 ? 2 : -2);
@@ -226,6 +256,10 @@ export function startGame(container: HTMLElement): () => void {
 
   canvas.addEventListener('click', handleClick);
   canvas.addEventListener('mousemove', handleMove);
+  canvas.addEventListener('pointerdown', handlePointerDown);
+  canvas.addEventListener('pointermove', handlePointerMove, { passive: false });
+  canvas.addEventListener('pointerup', handlePointerUp);
+  canvas.addEventListener('pointercancel', handlePointerUp);
   canvas.addEventListener('wheel', handleWheel, { passive: false });
 
   function update(dt: number) {
@@ -343,6 +377,10 @@ export function startGame(container: HTMLElement): () => void {
     cancelAnimationFrame(animationFrameId);
     canvas.removeEventListener('click', handleClick);
     canvas.removeEventListener('mousemove', handleMove);
+    canvas.removeEventListener('pointerdown', handlePointerDown);
+    canvas.removeEventListener('pointermove', handlePointerMove);
+    canvas.removeEventListener('pointerup', handlePointerUp);
+    canvas.removeEventListener('pointercancel', handlePointerUp);
     canvas.removeEventListener('wheel', handleWheel);
     canvas.remove();
     hud.remove();
