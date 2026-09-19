@@ -32,6 +32,22 @@ export function startGame(container: HTMLElement): () => void {
   let lives = 100;
   let gameOver = false;
   let victory = false;
+  let paused = false;
+  let gameSpeed = 1;
+  let audioContext: AudioContext | null = null;
+
+  function playTone(frequency: number, duration = 0.08) {
+    audioContext ??= new AudioContext();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.frequency.value = frequency;
+    oscillator.type = 'sine';
+    gain.gain.setValueAtTime(0.04, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + duration);
+  }
   let adminMode = false;
 
   const hud = document.createElement('div');
@@ -46,7 +62,7 @@ export function startGame(container: HTMLElement): () => void {
 
   const bottomDock = document.createElement('section');
   bottomDock.className = 'bottom-dock';
-  bottomDock.innerHTML = '<div class="dock-top"><div><span class="dock-kicker">SPIELFELD</span><strong data-map-name></strong></div><div class="zoom-controls"><button class="zoom-out" type="button" aria-label="Herauszoomen">−</button><span>ZOOM</span><button class="zoom-in" type="button" aria-label="Hineinzoomen">+</button></div><select class="map-select" aria-label="Karte auswählen"></select><select class="difficulty-select" aria-label="Schwierigkeit"></select><button class="round-button" type="button">Runde starten</button></div><div class="upgrade-panel empty"></div>';
+  bottomDock.innerHTML = '<div class="dock-top"><div><span class="dock-kicker">SPIELFELD</span><strong data-map-name></strong></div><div class="zoom-controls"><button class="zoom-out" type="button" aria-label="Herauszoomen">−</button><span>ZOOM</span><button class="zoom-in" type="button" aria-label="Hineinzoomen">+</button></div><select class="map-select" aria-label="Karte auswählen"></select><select class="difficulty-select" aria-label="Schwierigkeit"></select><button class="endless-button" type="button">Endless</button><button class="pause-button" type="button">Ⅱ Pause</button><button class="speed-button" type="button">1x</button><button class="save-button" type="button">Speichern</button><button class="load-button" type="button">Laden</button><button class="restart-button" type="button">↻ Neu</button><button class="round-button" type="button">Runde starten</button></div><div class="upgrade-panel empty"></div>';
   container.appendChild(bottomDock);
 
   const overlay = document.createElement('div');
@@ -64,6 +80,12 @@ export function startGame(container: HTMLElement): () => void {
   const difficultySelect = bottomDock.querySelector('.difficulty-select') as HTMLSelectElement;
   const upgradePanel = bottomDock.querySelector('.upgrade-panel') as HTMLElement;
   const roundButton = bottomDock.querySelector('.round-button') as HTMLButtonElement;
+  const pauseButton = bottomDock.querySelector('.pause-button') as HTMLButtonElement;
+  const speedButton = bottomDock.querySelector('.speed-button') as HTMLButtonElement;
+  const restartButton = bottomDock.querySelector('.restart-button') as HTMLButtonElement;
+  const saveButton = bottomDock.querySelector('.save-button') as HTMLButtonElement;
+  const loadButton = bottomDock.querySelector('.load-button') as HTMLButtonElement;
+  const endlessButton = bottomDock.querySelector('.endless-button') as HTMLButtonElement;
   const mapNameLabel = bottomDock.querySelector('[data-map-name]') as HTMLElement;
   const zoomOut = bottomDock.querySelector('.zoom-out') as HTMLButtonElement;
   const zoomIn = bottomDock.querySelector('.zoom-in') as HTMLButtonElement;
@@ -75,6 +97,12 @@ export function startGame(container: HTMLElement): () => void {
 
   zoomOut.addEventListener('click', () => renderer.zoomCamera(2));
   zoomIn.addEventListener('click', () => renderer.zoomCamera(-2));
+  pauseButton.addEventListener('click', () => { paused = !paused; refreshHud(); });
+  speedButton.addEventListener('click', () => { gameSpeed = gameSpeed === 1 ? 2 : gameSpeed === 2 ? 0.5 : 1; refreshHud(); });
+  restartButton.addEventListener('click', () => window.location.reload());
+  saveButton.addEventListener('click', saveGame);
+  loadButton.addEventListener('click', loadGame);
+  endlessButton.addEventListener('click', () => { waves.setEndless(!waves.endlessMode); refreshControls(); });
 
   adminOpen.addEventListener('click', () => adminPanel.classList.add('visible'));
   adminClose.addEventListener('click', () => adminPanel.classList.remove('visible'));
@@ -158,6 +186,7 @@ export function startGame(container: HTMLElement): () => void {
   roundButton.addEventListener('click', () => {
     if (!waves.roundActive && !gameOver && !victory) {
       waves.startRound();
+      playTone(520, 0.12);
       refreshControls();
     }
   });
@@ -263,7 +292,8 @@ export function startGame(container: HTMLElement): () => void {
   canvas.addEventListener('wheel', handleWheel, { passive: false });
 
   function update(dt: number) {
-    if (gameOver || victory) return;
+    if (gameOver || victory || paused) return;
+    dt *= gameSpeed;
 
     const spawnResult = waves.update(dt, bloons.filter(bloon => bloon.alive).length);
     bloons.push(...spawnResult.spawned);
@@ -315,11 +345,43 @@ export function startGame(container: HTMLElement): () => void {
   function refreshHud() {
     cashLabel.textContent = `$${economy.cash}`;
     livesLabel.textContent = `${Math.max(0, lives)}`;
-    roundLabel.textContent = `${Math.min(waves.displayRound, waves.totalRounds)} / ${waves.totalRounds}`;
+    roundLabel.textContent = waves.endlessMode ? `∞ ${waves.displayRound}` : `${Math.min(waves.displayRound, waves.totalRounds)} / ${waves.totalRounds}`;
     roundButton.disabled = waves.roundActive || gameOver || victory;
     roundButton.textContent = waves.roundActive ? 'Runde läuft …' : waves.allRoundsComplete ? 'Alle Runden geschafft' : '▶  Runde starten';
+    pauseButton.textContent = paused ? '▶ Weiter' : 'Ⅱ Pause';
+    speedButton.textContent = `${gameSpeed}x`;
+    endlessButton.classList.toggle('active', waves.endlessMode);
     mapSelect.value = `${MAPS.indexOf(activeMap)}`;
     mapNameLabel.textContent = activeMap.name;
+  }
+
+  function saveGame() {
+    const save = {
+      map: MAPS.indexOf(activeMap), difficulty: waves.difficulty, cash: economy.cash, lives,
+      round: waves.currentRound, towers: towers.map(tower => ({ type: tower.type, x: tower.x, y: tower.y, upgrades: tower.upgradeTiers })),
+    };
+    localStorage.setItem('balloon-bastion-save', JSON.stringify(save));
+    saveButton.textContent = 'Gespeichert';
+    window.setTimeout(() => { saveButton.textContent = 'Speichern'; }, 1200);
+  }
+
+  function loadGame() {
+    const raw = localStorage.getItem('balloon-bastion-save');
+    if (!raw) return;
+    const save = JSON.parse(raw) as { map: number; difficulty: DifficultyId; cash: number; lives: number; round: number; towers: Array<{ type: TowerTypeId; x: number; y: number; upgrades: number[] }> };
+    activeMap = MAPS[save.map] ?? DEFAULT_MAP;
+    waves.setDifficulty(save.difficulty);
+    waves.currentRound = save.round;
+    economy.cash = save.cash;
+    lives = save.lives;
+    towers.length = 0;
+    for (const data of save.towers) {
+      const tower = new Tower(data.type, data.x, data.y);
+      data.upgrades.forEach((_, path) => { for (let tier = 0; tier < (data.upgrades[path] ?? 0); tier++) tower.applyUpgrade(path as 0 | 1 | 2); });
+      towers.push(tower);
+    }
+    selectedTower = null;
+    refreshControls();
   }
 
   function refreshUpgradePanel() {
@@ -340,13 +402,18 @@ export function startGame(container: HTMLElement): () => void {
       return `<div class="upgrade-path"><div class="path-heading"><span>Pfad ${pathIndex + 1}</span><span>${tierDots}</span></div><button class="upgrade-button" data-path="${pathIndex}" ${available && economy.canAfford(next.cost) ? '' : 'disabled'}><span><strong>${next ? next.name : 'Pfad maximiert'}</strong><small>${next ? next.description : 'Keine weitere Verbesserung'}</small></span><b>${next ? `$${next.cost}` : 'MAX'}</b></button></div>`;
     }).join('');
 
-    upgradePanel.innerHTML = `<div class="selected-heading"><span class="selected-icon">${config.emoji}</span><span><strong>${config.name}</strong><small>Stufe ${selectedTower.upgradeTiers.join('-')}</small></span></div><div class="upgrade-paths">${pathMarkup}</div><button class="sell-button" type="button">Verkaufen · $${selectedTower.sellValue}</button>`;
+    upgradePanel.innerHTML = `<div class="selected-heading"><span class="selected-icon">${config.emoji}</span><span><strong>${config.name}</strong><small>Stufe ${selectedTower.upgradeTiers.join('-')}</small></span><select class="target-select" aria-label="Zielpriorität"><option value="first">Erster</option><option value="last">Letzter</option><option value="strong">Stärkster</option><option value="close">Nächster</option></select></div><div class="upgrade-paths">${pathMarkup}</div><button class="ability-button" type="button">⚡ Fähigkeit: ${selectedTower.abilityTimer > 0 ? `${Math.ceil(selectedTower.abilityTimer)}s` : 'Bereit'}</button><button class="sell-button" type="button">Verkaufen · $${selectedTower.sellValue}</button>`;
+    const targetSelect = upgradePanel.querySelector('.target-select') as HTMLSelectElement;
+    targetSelect.value = selectedTower.targeting;
+    targetSelect.addEventListener('change', () => { if (selectedTower) selectedTower.targeting = targetSelect.value as Tower['targeting']; });
+    upgradePanel.querySelector('.ability-button')?.addEventListener('click', () => { selectedTower?.activateAbility(); refreshControls(); });
     for (const button of upgradePanel.querySelectorAll<HTMLButtonElement>('[data-path]')) {
       button.addEventListener('click', () => {
         const pathIndex = Number(button.dataset.path) as 0 | 1 | 2;
         const upgrade = selectedTower?.getNextUpgrade(pathIndex);
         if (selectedTower && upgrade && selectedTower.canUpgrade(pathIndex) && (adminMode || economy.spend(upgrade.cost))) {
           selectedTower.applyUpgrade(pathIndex);
+          playTone(740, 0.1);
           refreshControls();
         }
       });

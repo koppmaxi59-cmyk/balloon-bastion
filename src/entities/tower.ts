@@ -28,6 +28,7 @@ export class Tower {
 
   // State
   cooldownTimer = 0;
+  abilityTimer = 0;
   totalInvested: number;
   /** Upgrade tiers purchased: [pathA tier, pathB tier] (0-3) */
   upgradeTiers: [number, number, number] = [0, 0, 0];
@@ -131,7 +132,8 @@ export class Tower {
    * Returns new projectiles to add to the game.
    */
   update(dt: number, bloons: Bloon[]): Projectile[] {
-    this.cooldownTimer -= dt;
+    this.abilityTimer = Math.max(0, this.abilityTimer - dt);
+    this.cooldownTimer -= dt * (this.abilityTimer > 0 ? 2 : 1);
     if (this.cooldownTimer > 0) return [];
 
     const target = this.findTarget(bloons);
@@ -201,5 +203,12 @@ export class Tower {
       }
     }
     return []; // Ice doesn't create projectiles
+  }
+
+  activateAbility(): boolean {
+    if (this.abilityTimer > 0) return false;
+    this.abilityTimer = 5;
+    this.cooldownTimer = 0;
+    return true;
   }
 }

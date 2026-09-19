@@ -132,6 +132,7 @@ export class WaveManager {
   currentRound = 0; // 0-indexed internally, displayed as +1
   totalRounds = ROUNDS.length;
   roundActive = false;
+  endlessMode = false;
 
   /** Spawn timers for current round */
   private spawnGroups: {
@@ -157,9 +158,15 @@ export class WaveManager {
     this.spawnGroups = [];
   }
 
+  setEndless(enabled: boolean) {
+    this.endlessMode = enabled;
+    this.currentRound = 0;
+    this.roundActive = false;
+  }
+
   /** Returns true if all rounds completed */
   get allRoundsComplete(): boolean {
-    return this.currentRound >= this.totalRounds;
+    return !this.endlessMode && this.currentRound >= this.totalRounds;
   }
 
   get displayRound(): number {
@@ -170,11 +177,12 @@ export class WaveManager {
   startRound(): void {
     if (this.allRoundsComplete) return;
 
-    const roundDef = ROUNDS[this.currentRound];
+    const roundDef = ROUNDS[this.currentRound % this.totalRounds];
+    const endlessScale = this.endlessMode ? 1 + Math.floor(this.currentRound / this.totalRounds) * 0.25 : 1;
     this.spawnGroups = roundDef.map(g => ({
       type: g.type,
-      remaining: Math.max(1, Math.ceil(g.count * DIFFICULTY_DATA[this.difficulty].bloonCount)),
-      spacing: g.spacing,
+      remaining: Math.max(1, Math.ceil(g.count * DIFFICULTY_DATA[this.difficulty].bloonCount * endlessScale)),
+      spacing: Math.max(0.08, g.spacing / endlessScale),
       timer: 0,
       started: false,
       startDelay: g.delay,
